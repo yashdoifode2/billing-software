@@ -27,8 +27,6 @@ class InvoiceController:
         dialog = InvoiceDialog()
         if dialog.exec_():
             self.load_invoices()
-            # Success message is already shown in the dialog, so don't show duplicate
-            # QMessageBox.information(self.view, "Success", "Invoice created successfully!")
     
     def view_invoice(self, invoice_id):
         invoice = self.model.get_by_id(invoice_id)
@@ -36,17 +34,20 @@ class InvoiceController:
             from views.invoice_viewer import InvoiceViewer
             viewer = InvoiceViewer(invoice, self.auth_service)
             viewer.exec_()
-            self.load_invoices()  # Refresh after potential status changes
+            self.load_invoices()
     
     def export_pdf(self, invoice_id):
+        """Export invoice to PDF with logo and bank details"""
         try:
             invoice = self.model.get_by_id(invoice_id)
             if not invoice:
                 QMessageBox.warning(self.view, "Error", "Invoice not found!")
                 return
             
+            # Get settings with logo and bank details
             settings = self.settings_controller.get_settings()
             
+            # Ask for save location
             file_path, _ = QFileDialog.getSaveFileName(
                 self.view, 
                 "Save PDF", 
@@ -55,11 +56,13 @@ class InvoiceController:
             )
             
             if file_path:
+                # Generate PDF with full features
                 pdf_gen = PDFGenerator(invoice, settings)
                 pdf_gen.generate(file_path)
                 
                 QMessageBox.information(self.view, "Success", f"PDF exported successfully!\nLocation: {file_path}")
                 
+                # Ask to open PDF
                 reply = QMessageBox.question(self.view, "Open PDF", 
                                             "PDF created successfully! Would you like to open it?",
                                             QMessageBox.Yes | QMessageBox.No)

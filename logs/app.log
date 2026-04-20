@@ -1,0 +1,9 @@
+2026-04-20 14:37:07 - INFO - ============================================================
+2026-04-20 14:37:07 - INFO - SYSTEM STARTUP
+2026-04-20 14:37:07 - INFO - Start Time: 2026-04-20 14:37:07
+2026-04-20 14:37:07 - INFO - ============================================================
+2026-04-20 14:37:08 - INFO - QApplication created successfully
+2026-04-20 14:37:08 - INFO - Initializing database...
+2026-04-20 14:37:08 - INFO - Database initialized successfully
+2026-04-20 14:37:08 - INFO - Application running...
+2026-04-20 14:37:59 - DEBUG - Module loaded: LoginDialog

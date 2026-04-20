@@ -1,12 +1,13 @@
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image, KeepTogether
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch, cm
 from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT
 from reportlab.pdfgen import canvas
 import io
 import os
+import base64
 from datetime import datetime
 
 class PDFGenerator:
@@ -34,7 +35,7 @@ class PDFGenerator:
             parent=styles['Heading1'],
             fontSize=24,
             alignment=TA_CENTER,
-            spaceAfter=20,
+            spaceAfter=10,
             textColor=colors.HexColor('#2c3e50')
         )
         
@@ -68,55 +69,75 @@ class PDFGenerator:
             alignment=TA_RIGHT
         )
         
-        # ==================== HEADER SECTION ====================
+        # ==================== HEADER SECTION WITH LOGO ====================
         
-        # Company Logo and Name
         business_name = self.settings.get('business_name', 'Business Name')
         business_address = self.settings.get('business_address', '')
         business_phone = self.settings.get('business_phone', '')
         business_email = self.settings.get('business_email', '')
         business_gst = self.settings.get('business_gst', '')
+        business_website = self.settings.get('business_website', '')
         
-        # Header Table
-        header_data = []
+        # Check for logo
+        logo_data = self.settings.get('company_logo', '')
+        has_logo = logo_data and len(logo_data) > 0
         
-        # Company Name
-        header_data.append([Paragraph(f"<b>{business_name}</b>", title_style)])
+        # Header with Logo
+        if has_logo:
+            try:
+                # Decode and create logo image
+                logo_bytes = base64.b64decode(logo_data)
+                logo_buffer = io.BytesIO(logo_bytes)
+                logo = Image(logo_buffer, width=1.2*inch, height=1.2*inch)
+                
+                # Create header with logo and business info
+                header_data = [
+                    [logo, Paragraph(f"<b>{business_name}</b>", title_style)]
+                ]
+                header_table = Table(header_data, colWidths=[2.5*cm, 14.5*cm])
+                header_table.setStyle(TableStyle([
+                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                    ('ALIGN', (0, 0), (0, 0), 'CENTER'),
+                    ('ALIGN', (1, 0), (1, 0), 'CENTER'),
+                ]))
+                story.append(header_table)
+            except Exception as e:
+                print(f"Error loading logo: {e}")
+                story.append(Paragraph(f"<b>{business_name}</b>", title_style))
+        else:
+            story.append(Paragraph(f"<b>{business_name}</b>", title_style))
         
-        # Address
+        # Business Address and Contact
+        contact_lines = []
         if business_address:
-            header_data.append([Paragraph(business_address, header_style)])
-        
-        # Contact Info
-        contact_text = ""
+            contact_lines.append(business_address)
+        contact_info = ""
         if business_phone:
-            contact_text += f"Phone: {business_phone}"
+            contact_info += f"Phone: {business_phone}"
         if business_email:
-            if contact_text:
-                contact_text += f" | Email: {business_email}"
+            if contact_info:
+                contact_info += f" | Email: {business_email}"
             else:
-                contact_text += f"Email: {business_email}"
-        if contact_text:
-            header_data.append([Paragraph(contact_text, header_style)])
+                contact_info += f"Email: {business_email}"
+        if business_website:
+            if contact_info:
+                contact_info += f" | Web: {business_website}"
+            else:
+                contact_info += f"Web: {business_website}"
         
-        # GST Number
+        if contact_info:
+            contact_lines.append(contact_info)
         if business_gst:
-            header_data.append([Paragraph(f"GSTIN: {business_gst}", header_style)])
+            contact_lines.append(f"GSTIN: {business_gst}")
         
-        header_table = Table(header_data, colWidths=[17*cm])
-        header_table.setStyle(TableStyle([
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
-            ('TOPPADDING', (0, 0), (-1, -1), 5),
-        ]))
-        story.append(header_table)
+        for line in contact_lines:
+            story.append(Paragraph(line, header_style))
         
         # Horizontal Line
         story.append(Spacer(1, 0.2*inch))
         line_table = Table([['']], colWidths=[17*cm])
         line_table.setStyle(TableStyle([
-            ('LINEABOVE', (0, 0), (-1, -1), 1, colors.HexColor('#3498db')),
+            ('LINEABOVE', (0, 0), (-1, -1), 1.5, colors.HexColor('#3498db')),
         ]))
         story.append(line_table)
         story.append(Spacer(1, 0.3*inch))
@@ -252,24 +273,25 @@ class PDFGenerator:
         igst_total = sum(item.get('igst_amount', 0) for item in self.invoice['items'])
         
         if cgst_total > 0 or sgst_total > 0 or igst_total > 0:
-            tax_data = [['<b>Tax Breakdown</b>', '']]
+            tax_data = [['<b>Tax Breakdown</b>', '', 'Amount']]
             if cgst_total > 0:
-                tax_data.append(['CGST (9%)', f"{currency}{cgst_total:,.2f}"])
+                tax_data.append(['CGST', f"@{self.settings.get('default_cgst', '9')}%", f"{currency}{cgst_total:,.2f}"])
             if sgst_total > 0:
-                tax_data.append(['SGST (9%)', f"{currency}{sgst_total:,.2f}"])
+                tax_data.append(['SGST', f"@{self.settings.get('default_sgst', '9')}%", f"{currency}{sgst_total:,.2f}"])
             if igst_total > 0:
-                tax_data.append(['IGST (18%)', f"{currency}{igst_total:,.2f}"])
+                tax_data.append(['IGST', f"@{self.settings.get('default_igst', '18')}%", f"{currency}{igst_total:,.2f}"])
             
-            tax_table = Table(tax_data, colWidths=[12*cm, 5*cm])
+            tax_table = Table(tax_data, colWidths=[8*cm, 4*cm, 5*cm])
             tax_table.setStyle(TableStyle([
                 ('ALIGN', (0, 0), (0, -1), 'LEFT'),
-                ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
+                ('ALIGN', (1, 0), (2, -1), 'RIGHT'),
                 ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
                 ('FONTSIZE', (0, 0), (-1, 0), 11),
                 ('FONTSIZE', (0, 1), (-1, -1), 10),
                 ('TOPPADDING', (0, 0), (-1, -1), 5),
                 ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
                 ('LINEABOVE', (0, 0), (-1, 0), 1, colors.HexColor('#bdc3c7')),
+                ('LINEBELOW', (0, -1), (-1, -1), 1, colors.HexColor('#bdc3c7')),
             ]))
             story.append(tax_table)
             story.append(Spacer(1, 0.2*inch))
@@ -327,6 +349,47 @@ class PDFGenerator:
         ]))
         story.append(words_table)
         story.append(Spacer(1, 0.3*inch))
+        
+        # ==================== BANK DETAILS SECTION ====================
+        
+        bank_name = self.settings.get('bank_name', '')
+        bank_account_name = self.settings.get('bank_account_name', '')
+        bank_account_number = self.settings.get('bank_account_number', '')
+        bank_ifsc = self.settings.get('bank_ifsc', '')
+        bank_branch = self.settings.get('bank_branch', '')
+        bank_upi_id = self.settings.get('bank_upi_id', '')
+        
+        if bank_name or bank_account_number:
+            bank_data = [
+                [Paragraph("<b>BANK DETAILS FOR PAYMENT</b>", bold_style)],
+            ]
+            
+            if bank_name:
+                bank_data.append([Paragraph(f"<b>Bank:</b> {bank_name}", normal_style)])
+            if bank_account_name:
+                bank_data.append([Paragraph(f"<b>Account Name:</b> {bank_account_name}", normal_style)])
+            if bank_account_number:
+                bank_data.append([Paragraph(f"<b>Account Number:</b> {bank_account_number}", normal_style)])
+            if bank_ifsc:
+                bank_data.append([Paragraph(f"<b>IFSC Code:</b> {bank_ifsc}", normal_style)])
+            if bank_branch:
+                bank_data.append([Paragraph(f"<b>Branch:</b> {bank_branch}", normal_style)])
+            if bank_upi_id:
+                bank_data.append([Paragraph(f"<b>UPI ID:</b> {bank_upi_id}", normal_style)])
+            
+            bank_table = Table(bank_data, colWidths=[17*cm])
+            bank_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#3498db')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('TOPPADDING', (0, 0), (-1, -1), 6),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+                ('LEFTPADDING', (0, 0), (-1, -1), 10),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 10),
+                ('BOX', (0, 0), (-1, -1), 1, colors.HexColor('#3498db')),
+            ]))
+            story.append(bank_table)
+            story.append(Spacer(1, 0.2*inch))
         
         # ==================== NOTES SECTION ====================
         
