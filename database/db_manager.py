@@ -1,20 +1,23 @@
 import sqlite3
 import os
 from contextlib import contextmanager
+from config import Config
 
 class DatabaseManager:
-    def __init__(self, db_path="invoice_app.db"):
-        self.db_path = db_path
+    def __init__(self, db_path=None):
+        self.db_path = db_path or Config.DATABASE_PATH
         self.init_database()
     
     def init_database(self):
         """Initialize database with schema"""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            schema_path = os.path.join(os.path.dirname(__file__), 'schema.sql')
-            with open(schema_path, 'r') as f:
-                cursor.executescript(f.read())
-            conn.commit()
+        if not os.path.exists(self.db_path):
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                schema_path = os.path.join(os.path.dirname(__file__), 'schema.sql')
+                if os.path.exists(schema_path):
+                    with open(schema_path, 'r') as f:
+                        cursor.executescript(f.read())
+                conn.commit()
     
     @contextmanager
     def get_connection(self):
@@ -57,3 +60,11 @@ class DatabaseManager:
                 cursor.execute(query)
             row = cursor.fetchone()
             return dict(row) if row else None
+    
+    def execute_many(self, query, params_list):
+        """Execute many queries"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.executemany(query, params_list)
+            conn.commit()
+            return cursor.rowcount

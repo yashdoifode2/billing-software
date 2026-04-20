@@ -1,3 +1,9 @@
 PyQt5
 reportlab
 pyinstaller
+PyQtChart
+bcrypt
+pyjwt
+python-dotenv
+openpyxl
+Pillow

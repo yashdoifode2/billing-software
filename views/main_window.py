@@ -1,20 +1,30 @@
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-                             QStackedWidget, QListWidget, QLabel, QFrame)
+                             QStackedWidget, QLabel, QFrame, QPushButton, 
+                             QMessageBox)
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QFont, QIcon
+import sys
+import os
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from views.dashboard import DashboardWidget
 from views.customers import CustomersWidget
 from views.products import ProductsWidget
 from views.invoices import InvoicesWidget
+from views.expenses import ExpensesWidget
+from views.reports import ReportsWidget
 from views.settings import SettingsWidget
+from services.auth_service import AuthService
 
 class MainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, user):
         super().__init__()
-        self.setWindowTitle("Professional Invoice System")
-        self.setGeometry(100, 100, 1200, 700)
+        self.user = user
+        self.auth_service = AuthService()
+        self.auth_service.current_user = user
+        self.setWindowTitle(f"Professional Invoice System - {user['full_name']}")
+        self.setGeometry(100, 100, 1300, 750)
         self.setup_ui()
-        self.apply_styles()
     
     def setup_ui(self):
         # Central widget
@@ -29,65 +39,162 @@ class MainWindow(QMainWindow):
         # Sidebar
         sidebar = QFrame()
         sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(250)
+        sidebar.setFixedWidth(260)
+        sidebar.setStyleSheet("""
+            QFrame#sidebar {
+                background-color: #2c3e50;
+                border-right: 1px solid #34495e;
+            }
+        """)
+        
         sidebar_layout = QVBoxLayout(sidebar)
-        sidebar_layout.setContentsMargins(20, 30, 20, 30)
+        sidebar_layout.setContentsMargins(15, 20, 15, 20)
         sidebar_layout.setSpacing(10)
         
-        # Logo/title
-        title = QLabel("Invoice System")
-        title.setObjectName("sidebar_title")
-        title.setAlignment(Qt.AlignCenter)
-        sidebar_layout.addWidget(title)
-        sidebar_layout.addSpacing(30)
+        # Logo/Title
+        logo_label = QLabel("📊 Invoice Pro")
+        logo_label.setStyleSheet("""
+            color: white;
+            font-size: 20px;
+            font-weight: bold;
+            padding: 10px;
+            margin-bottom: 20px;
+        """)
+        logo_label.setAlignment(Qt.AlignCenter)
+        sidebar_layout.addWidget(logo_label)
+        
+        # User info
+        user_frame = QFrame()
+        user_frame.setObjectName("user_frame")
+        user_frame.setStyleSheet("""
+            QFrame#user_frame {
+                background-color: #34495e;
+                border-radius: 10px;
+                padding: 15px;
+                margin-bottom: 20px;
+            }
+        """)
+        user_layout = QVBoxLayout(user_frame)
+        
+        user_name = QLabel(f"👤 {self.user['full_name']}")
+        user_name.setStyleSheet("color: white; font-size: 14px; font-weight: bold;")
+        user_role = QLabel(f"Role: {self.user['role'].upper()}")
+        user_role.setStyleSheet("color: #bdc3c7; font-size: 12px;")
+        
+        user_layout.addWidget(user_name)
+        user_layout.addWidget(user_role)
+        sidebar_layout.addWidget(user_frame)
         
         # Navigation buttons
-        self.nav_buttons = {}
         nav_items = [
-            ("📊 Dashboard", 0),
-            ("👥 Customers", 1),
-            ("📦 Products", 2),
-            ("📄 Invoices", 3),
-            ("⚙️ Settings", 4)
+            ("📊 Dashboard", "dashboard"),
+            ("👥 Customers", "customers"),
+            ("📦 Products", "products"),
+            ("📄 Invoices", "invoices"),
+            ("💰 Expenses", "expenses"),
+            ("📈 Reports", "reports"),
+            ("⚙️ Settings", "settings"),
         ]
         
-        for text, index in nav_items:
-            btn = QListWidget()
-            btn.addItem(text)
-            btn.setMaximumHeight(50)
+        self.pages = {}
+        self.stacked_widget = QStackedWidget()
+        
+        # Create pages
+        print("Creating pages...")
+        self.pages['dashboard'] = DashboardWidget(self.auth_service)
+        self.stacked_widget.addWidget(self.pages['dashboard'])
+        
+        self.pages['customers'] = CustomersWidget(self.auth_service)
+        self.stacked_widget.addWidget(self.pages['customers'])
+        
+        self.pages['products'] = ProductsWidget(self.auth_service)
+        self.stacked_widget.addWidget(self.pages['products'])
+        
+        self.pages['invoices'] = InvoicesWidget(self.auth_service)
+        self.stacked_widget.addWidget(self.pages['invoices'])
+        
+        self.pages['expenses'] = ExpensesWidget(self.auth_service)
+        self.stacked_widget.addWidget(self.pages['expenses'])
+        
+        self.pages['reports'] = ReportsWidget(self.auth_service)
+        self.stacked_widget.addWidget(self.pages['reports'])
+        
+        self.pages['settings'] = SettingsWidget(self.auth_service)
+        self.stacked_widget.addWidget(self.pages['settings'])
+        
+        # Add navigation buttons
+        for text, name in nav_items:
+            btn = QPushButton(text)
             btn.setObjectName("nav_button")
-            btn.clicked.connect(lambda checked, i=index: self.switch_page(i))
+            btn.setMinimumHeight(45)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setStyleSheet("""
+                QPushButton#nav_button {
+                    background-color: transparent;
+                    color: white;
+                    border: none;
+                    text-align: left;
+                    padding: 10px 15px;
+                    font-size: 14px;
+                    border-radius: 8px;
+                }
+                QPushButton#nav_button:hover {
+                    background-color: #34495e;
+                }
+            """)
+            btn.clicked.connect(lambda checked, n=name: self.switch_page(n))
             sidebar_layout.addWidget(btn)
-            self.nav_buttons[index] = btn
         
         sidebar_layout.addStretch()
         
-        # Stacked widget for pages
-        self.stacked_widget = QStackedWidget()
-        
-        # Add pages
-        self.dashboard = DashboardWidget()
-        self.customers = CustomersWidget()
-        self.products = ProductsWidget()
-        self.invoices = InvoicesWidget()
-        self.settings = SettingsWidget()
-        
-        self.stacked_widget.addWidget(self.dashboard)
-        self.stacked_widget.addWidget(self.customers)
-        self.stacked_widget.addWidget(self.products)
-        self.stacked_widget.addWidget(self.invoices)
-        self.stacked_widget.addWidget(self.settings)
+        # Logout button
+        logout_btn = QPushButton("🚪 Logout")
+        logout_btn.setObjectName("logout_btn")
+        logout_btn.setMinimumHeight(45)
+        logout_btn.setCursor(Qt.PointingHandCursor)
+        logout_btn.setStyleSheet("""
+            QPushButton#logout_btn {
+                background-color: #e74c3c;
+                color: white;
+                border: none;
+                text-align: left;
+                padding: 10px 15px;
+                font-size: 14px;
+                border-radius: 8px;
+                margin-top: 20px;
+            }
+            QPushButton#logout_btn:hover {
+                background-color: #c0392b;
+            }
+        """)
+        logout_btn.clicked.connect(self.logout)
+        sidebar_layout.addWidget(logout_btn)
         
         # Add to main layout
         main_layout.addWidget(sidebar)
         main_layout.addWidget(self.stacked_widget, 1)
+        
+        # Set default page
+        self.switch_page('dashboard')
     
-    def switch_page(self, index):
-        self.stacked_widget.setCurrentIndex(index)
-        # Refresh dashboard when switching to it
-        if index == 0:
-            self.dashboard.refresh_data()
+    def switch_page(self, page_name):
+        if page_name in self.pages:
+            self.stacked_widget.setCurrentWidget(self.pages[page_name])
+            if hasattr(self.pages[page_name], 'refresh'):
+                self.pages[page_name].refresh()
     
-    def apply_styles(self):
-        with open('resources/styles.qss', 'r') as f:
-            self.setStyleSheet(f.read())
+    def logout(self):
+        reply = QMessageBox.question(self, "Logout", "Are you sure you want to logout?",
+                                    QMessageBox.Yes | QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            self.auth_service.logout()
+            self.close()
+            from views.login_dialog import LoginDialog
+            self.login_dialog = LoginDialog()
+            self.login_dialog.login_successful.connect(self.restart_app)
+            self.login_dialog.show()
+    
+    def restart_app(self, user):
+        self.close()
+        new_window = MainWindow(user)
+        new_window.show()

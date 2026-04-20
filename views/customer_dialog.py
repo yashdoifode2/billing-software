@@ -12,14 +12,12 @@ class CustomerDialog(QDialog):
             self.load_data()
         else:
             self.setWindowTitle("Add Customer")
+        self.setModal(True)
+        self.resize(500, 450)
     
     def setup_ui(self):
-        self.setModal(True)
-        self.setFixedSize(500, 400)
-        
         layout = QVBoxLayout(self)
         
-        # Form layout
         form_layout = QFormLayout()
         
         self.name_input = QLineEdit()
