@@ -1,64 +1,104 @@
 from database.db_manager import DatabaseManager
 from datetime import datetime, timedelta
-from services.tax_service import TaxService
 
 class Invoice:
     def __init__(self):
         self.db = DatabaseManager()
-        self.tax_service = TaxService()
     
-    def create(self, customer_id, items, notes="", terms=""):
+    def create(self, customer_id, items, notes=""):
         """Create new invoice with items"""
-        subtotal = sum(item['subtotal'] for item in items)
-        cgst_total = sum(item.get('cgst_amount', 0) for item in items)
-        sgst_total = sum(item.get('sgst_amount', 0) for item in items)
-        igst_total = sum(item.get('igst_amount', 0) for item in items)
-        tax_total = cgst_total + sgst_total + igst_total
-        grand_total = subtotal + tax_total
-        
-        # Get next invoice number
-        settings = self.get_settings()
-        prefix = settings.get('invoice_prefix', 'INV')
-        last_invoice = self.get_last_invoice_number()
-        if last_invoice:
-            try:
-                num = int(last_invoice.split('-')[-1]) + 1
-            except:
+        try:
+            # Calculate totals
+            subtotal = 0
+            tax_total = 0
+            
+            for item in items:
+                subtotal += item['quantity'] * item['unit_price']
+                # Calculate tax based on item structure
+                if 'tax_amount' in item:
+                    tax_total += item['tax_amount']
+                elif 'cgst_rate' in item and 'sgst_rate' in item:
+                    cgst = item['quantity'] * item['unit_price'] * item.get('cgst_rate', 0) / 100
+                    sgst = item['quantity'] * item['unit_price'] * item.get('sgst_rate', 0) / 100
+                    tax_total += cgst + sgst
+                elif 'igst_rate' in item:
+                    igst = item['quantity'] * item['unit_price'] * item.get('igst_rate', 0) / 100
+                    tax_total += igst
+            
+            grand_total = subtotal + tax_total
+            
+            # Get next invoice number
+            settings = self.get_settings()
+            prefix = settings.get('invoice_prefix', 'INV')
+            last_invoice = self.get_last_invoice_number()
+            if last_invoice:
+                try:
+                    num = int(last_invoice.split('-')[-1]) + 1
+                except:
+                    num = 1
+            else:
                 num = 1
-        else:
-            num = 1
-        invoice_number = f"{prefix}-{num:04d}"
-        
-        # Due date (default 30 days)
-        due_date = datetime.now() + timedelta(days=30)
-        
-        # Create invoice
-        query = """
-            INSERT INTO invoices (invoice_number, customer_id, subtotal, cgst_total, sgst_total, 
-                                 igst_total, tax_total, grand_total, notes, terms, due_date)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """
-        invoice_id = self.db.execute_query(query, (
-            invoice_number, customer_id, subtotal, cgst_total, sgst_total, 
-            igst_total, tax_total, grand_total, notes, terms, due_date.strftime('%Y-%m-%d %H:%M:%S')
-        ))
-        
-        # Create invoice items
-        for item in items:
-            item_query = """
-                INSERT INTO invoice_items (invoice_id, product_id, quantity, unit_price, 
-                                         cgst_rate, sgst_rate, igst_rate,
-                                         cgst_amount, sgst_amount, igst_amount, total)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            invoice_number = f"{prefix}-{num:04d}"
+            
+            # Due date (default 30 days)
+            due_date = datetime.now() + timedelta(days=30)
+            
+            # Create invoice
+            query = """
+                INSERT INTO invoices (invoice_number, customer_id, subtotal, tax_total, grand_total, notes, due_date)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             """
-            self.db.execute_query(item_query, (
-                invoice_id, item['product_id'], item['quantity'], item['unit_price'],
-                item.get('cgst_rate', 0), item.get('sgst_rate', 0), item.get('igst_rate', 0),
-                item.get('cgst_amount', 0), item.get('sgst_amount', 0), item.get('igst_amount', 0),
-                item['total']
+            invoice_id = self.db.execute_query(query, (
+                invoice_number, customer_id, subtotal, tax_total, grand_total, notes, 
+                due_date.strftime('%Y-%m-%d %H:%M:%S')
             ))
-        
-        return invoice_id
+            
+            # Create invoice items
+            for item in items:
+                # Calculate tax amounts for each item
+                quantity = item['quantity']
+                unit_price = item['unit_price']
+                subtotal_item = quantity * unit_price
+                
+                if 'tax_amount' in item:
+                    tax_amount = item['tax_amount']
+                    cgst_amount = item.get('cgst_amount', 0)
+                    sgst_amount = item.get('sgst_amount', 0)
+                    igst_amount = item.get('igst_amount', 0)
+                    cgst_rate = item.get('cgst_rate', 0)
+                    sgst_rate = item.get('sgst_rate', 0)
+                    igst_rate = item.get('igst_rate', 0)
+                else:
+                    # Calculate from rates
+                    cgst_rate = item.get('cgst_rate', 0)
+                    sgst_rate = item.get('sgst_rate', 0)
+                    igst_rate = item.get('igst_rate', 0)
+                    cgst_amount = subtotal_item * cgst_rate / 100
+                    sgst_amount = subtotal_item * sgst_rate / 100
+                    igst_amount = subtotal_item * igst_rate / 100
+                    tax_amount = cgst_amount + sgst_amount + igst_amount
+                
+                total_item = subtotal_item + tax_amount
+                
+                item_query = """
+                    INSERT INTO invoice_items (invoice_id, product_id, quantity, unit_price, 
+                                             cgst_rate, sgst_rate, igst_rate,
+                                             cgst_amount, sgst_amount, igst_amount, total)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """
+                self.db.execute_query(item_query, (
+                    invoice_id, item['product_id'], quantity, unit_price,
+                    cgst_rate, sgst_rate, igst_rate,
+                    cgst_amount, sgst_amount, igst_amount, total_item
+                ))
+            
+            return invoice_id
+            
+        except Exception as e:
+            print(f"Error creating invoice: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
     
     def get_all(self, limit=100, offset=0):
         """Get all invoices with pagination"""
@@ -74,7 +114,7 @@ class Invoice:
     def get_by_id(self, invoice_id):
         """Get invoice by ID with items"""
         query = """
-            SELECT i.*, c.name as customer_name, c.address, c.gst_number, c.pan_number, c.phone, c.email
+            SELECT i.*, c.name as customer_name, c.address, c.gst_number, c.phone, c.email
             FROM invoices i
             LEFT JOIN customers c ON i.customer_id = c.id
             WHERE i.id = ?
@@ -82,16 +122,12 @@ class Invoice:
         invoice = self.db.fetch_one(query, (invoice_id,))
         if invoice:
             items_query = """
-                SELECT ii.*, p.name as product_name, p.description, p.hsn_code
+                SELECT ii.*, p.name as product_name, p.description
                 FROM invoice_items ii
                 LEFT JOIN products p ON ii.product_id = p.id
                 WHERE ii.invoice_id = ?
             """
             invoice['items'] = self.db.fetch_all(items_query, (invoice_id,))
-            
-            # Get payments
-            payments_query = "SELECT * FROM invoice_payments WHERE invoice_id = ? ORDER BY payment_date DESC"
-            invoice['payments'] = self.db.fetch_all(payments_query, (invoice_id,))
         return invoice
     
     def get_last_invoice_number(self):

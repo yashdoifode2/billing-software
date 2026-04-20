@@ -68,8 +68,8 @@ class InvoicesWidget(QWidget):
         
         # Invoice table
         self.table = QTableWidget()
-        self.table.setColumnCount(5)
-        self.table.setHorizontalHeaderLabels(["ID", "Invoice #", "Customer", "Date", "Total"])
+        self.table.setColumnCount(6)
+        self.table.setHorizontalHeaderLabels(["ID", "Invoice #", "Customer", "Date", "Total", "Actions"])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setStyleSheet("""
@@ -97,6 +97,30 @@ class InvoicesWidget(QWidget):
             self.table.setItem(row, 2, QTableWidgetItem(invoice.get('customer_name', 'N/A')))
             self.table.setItem(row, 3, QTableWidgetItem(invoice['invoice_date'][:10]))
             self.table.setItem(row, 4, QTableWidgetItem(f"₹{invoice['grand_total']:.2f}"))
+            
+            # Action buttons
+            actions_widget = QWidget()
+            actions_layout = QHBoxLayout(actions_widget)
+            actions_layout.setContentsMargins(5, 5, 5, 5)
+            actions_layout.setSpacing(5)
+            
+            view_btn = QPushButton("👁️ View")
+            view_btn.setFixedSize(60, 30)
+            view_btn.setToolTip("View Invoice")
+            view_btn.setStyleSheet("background-color: #3498db; color: white;")
+            view_btn.clicked.connect(lambda checked, iid=invoice['id']: self.controller.view_invoice(iid))
+            
+            delete_btn = QPushButton("🗑️")
+            delete_btn.setFixedSize(35, 30)
+            delete_btn.setToolTip("Delete Invoice")
+            delete_btn.setStyleSheet("background-color: #e74c3c; color: white;")
+            delete_btn.clicked.connect(lambda checked, iid=invoice['id']: self.controller.delete_invoice(iid))
+            
+            actions_layout.addWidget(view_btn)
+            actions_layout.addWidget(delete_btn)
+            actions_layout.addStretch()
+            
+            self.table.setCellWidget(row, 5, actions_widget)
         
         self.table.resizeColumnsToContents()
     

@@ -14,7 +14,7 @@ class ExpenseDialog(QDialog):
         else:
             self.setWindowTitle("Add Expense")
         self.setModal(True)
-        self.resize(500, 450)
+        self.resize(500, 500)
     
     def setup_ui(self):
         layout = QVBoxLayout(self)
@@ -57,9 +57,13 @@ class ExpenseDialog(QDialog):
         
         # Buttons
         button_layout = QHBoxLayout()
-        self.save_btn = QPushButton("Save")
+        self.save_btn = QPushButton("Save Expense")
+        self.save_btn.setMinimumHeight(40)
+        self.save_btn.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold;")
         self.save_btn.clicked.connect(self.accept)
+        
         self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn.setMinimumHeight(40)
         self.cancel_btn.clicked.connect(self.reject)
         
         button_layout.addStretch()
