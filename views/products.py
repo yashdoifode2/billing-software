@@ -9,6 +9,7 @@ from PyQt5.QtGui import QFont, QColor, QPalette, QBrush, QPainter
 import sys
 import os
 from datetime import datetime
+from PyQt5.QtCore import Qt, QRect  # Add QRect here
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from controllers.product_controller import ProductController
