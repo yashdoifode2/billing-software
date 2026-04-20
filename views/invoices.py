@@ -1,44 +1,16 @@
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
                              QTableWidget, QTableWidgetItem, QLineEdit, QLabel, 
                              QHeaderView, QMessageBox, QScrollArea, QFrame,
-                             QComboBox, QDateEdit, QProgressBar, QFileDialog)
-from PyQt5.QtCore import Qt, QDate, QTimer, pyqtSignal, QObject, QThread
-from PyQt5.QtGui import QFont, QColor, QPalette
+                             QComboBox, QDateEdit, QFileDialog, QApplication)
+from PyQt5.QtCore import Qt, QDate, QTimer
+from PyQt5.QtGui import QFont, QColor
 from datetime import datetime
 import sys
 import os
 import csv
-import sip
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from controllers.invoice_controller import InvoiceController
-
-def is_widget_valid(widget):
-    """Check if widget exists and hasn't been deleted"""
-    try:
-        return widget is not None and not sip.isdeleted(widget)
-    except:
-        return False
-
-class PDFExportWorker(QObject):
-    """Worker class for PDF export to prevent UI freezing"""
-    finished = pyqtSignal(bool, str)
-    
-    def __init__(self, invoice_id, auth_service):
-        super().__init__()
-        self.invoice_id = invoice_id
-        self.auth_service = auth_service
-    
-    def export(self):
-        """Perform PDF export"""
-        try:
-            # Create a temporary controller for this operation
-            from controllers.invoice_controller import InvoiceController
-            controller = InvoiceController(None, self.auth_service)
-            controller.export_pdf(self.invoice_id)
-            self.finished.emit(True, "PDF exported successfully")
-        except Exception as e:
-            self.finished.emit(False, str(e))
 
 class ModernButton(QPushButton):
     """Custom styled button for consistent UI"""
@@ -111,15 +83,17 @@ class StatsCard(QFrame):
         layout.addWidget(self.value_label)
     
     def update_value(self, value):
-        if is_widget_valid(self):
-            self.value_label.setText(str(value))
+        if self and self.value_label and not self.value_label.isHidden():
+            try:
+                self.value_label.setText(str(value))
+            except RuntimeError:
+                pass
 
 class InvoicesWidget(QWidget):
     def __init__(self, auth_service):
         super().__init__()
         self.auth_service = auth_service
         self.is_closing = False
-        self.pdf_export_threads = []  # Track multiple threads
         self.controller = InvoiceController(self, auth_service)
         self.setup_ui()
         self.controller.load_invoices()
@@ -128,18 +102,16 @@ class InvoicesWidget(QWidget):
     def closeEvent(self, event):
         """Handle cleanup when widget is closed"""
         self.is_closing = True
-        
-        # Clean up all PDF export threads
-        for thread in self.pdf_export_threads:
-            if thread and thread.isRunning():
-                thread.quit()
-                thread.wait(1000)
-        
-        # Clear controller reference to prevent further calls
         if hasattr(self, 'controller'):
             self.controller = None
-        
         event.accept()
+    
+    def isWidgetValid(self):
+        """Check if widget is still valid"""
+        try:
+            return not self.is_closing and self and not self.isHidden()
+        except:
+            return False
     
     def setup_styles(self):
         """Set global styles for the widget"""
@@ -205,17 +177,6 @@ class InvoicesWidget(QWidget):
                 background: #bdc3c7;
                 border-radius: 5px;
                 min-width: 20px;
-            }
-            QProgressBar {
-                border: none;
-                border-radius: 5px;
-                background-color: #ecf0f1;
-                text-align: center;
-                font-weight: bold;
-            }
-            QProgressBar::chunk {
-                background-color: #9b59b6;
-                border-radius: 5px;
             }
         """)
     
@@ -338,12 +299,6 @@ class InvoicesWidget(QWidget):
         
         action_layout.addStretch()
         
-        # Progress indicator for long operations
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setVisible(False)
-        self.progress_bar.setFixedWidth(200)
-        action_layout.addWidget(self.progress_bar)
-        
         main_layout.addLayout(action_layout)
         
         # Table with Scroll Area
@@ -399,15 +354,15 @@ class InvoicesWidget(QWidget):
         main_layout.addWidget(self.status_label)
     
     def safe_create_invoice(self):
-        """Safely create invoice with widget validation"""
-        if self.is_closing or not is_widget_valid(self):
+        """Safely create invoice"""
+        if self.is_closing:
             return
         if self.controller:
             self.controller.create_invoice()
     
     def update_statistics(self, invoices):
         """Update statistics cards with current data"""
-        if self.is_closing or not is_widget_valid(self):
+        if self.is_closing:
             return
             
         if not invoices:
@@ -431,7 +386,7 @@ class InvoicesWidget(QWidget):
     
     def populate_table(self, invoices):
         """Populate table with invoice data and apply filters"""
-        if self.is_closing or not is_widget_valid(self):
+        if self.is_closing:
             return
             
         # Apply filters
@@ -536,23 +491,23 @@ class InvoicesWidget(QWidget):
         view_btn.clicked.connect(lambda checked, iid=invoice_id: self.safe_view_invoice(iid))
         
         # PDF button
-        pdf_btn = QPushButton("📄")
-        pdf_btn.setFixedSize(35, 35)
-        pdf_btn.setToolTip("Export as PDF")
-        pdf_btn.setCursor(Qt.PointingHandCursor)
-        pdf_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #27ae60;
-                color: white;
-                border: none;
-                border-radius: 5px;
-                font-size: 14px;
-            }
-            QPushButton:hover {
-                background-color: #229954;
-            }
-        """)
-        pdf_btn.clicked.connect(lambda checked, iid=invoice_id: self.export_pdf_with_progress(iid))
+        # pdf_btn = QPushButton("📄")
+        # pdf_btn.setFixedSize(35, 35)
+        # pdf_btn.setToolTip("Export as PDF")
+        # pdf_btn.setCursor(Qt.PointingHandCursor)
+        # pdf_btn.setStyleSheet("""
+        #     QPushButton {
+        #         background-color: #27ae60;
+        #         color: white;
+        #         border: none;
+        #         border-radius: 5px;
+        #         font-size: 14px;
+        #     }
+        #     QPushButton:hover {
+        #         background-color: #229954;
+        #     }
+        # """)
+        # pdf_btn.clicked.connect(lambda checked, iid=invoice_id: self.export_pdf_direct(iid))
         
         # Email button
         email_btn = QPushButton("📧")
@@ -593,7 +548,7 @@ class InvoicesWidget(QWidget):
         delete_btn.clicked.connect(lambda checked, iid=invoice_id: self.safe_delete_invoice(iid))
         
         layout.addWidget(view_btn)
-        layout.addWidget(pdf_btn)
+        # layout.addWidget(pdf_btn)
         layout.addWidget(email_btn)
         layout.addWidget(delete_btn)
         layout.addStretch()
@@ -601,28 +556,82 @@ class InvoicesWidget(QWidget):
         return widget
     
     def safe_view_invoice(self, invoice_id):
-        """Safely view invoice with widget validation"""
-        if self.is_closing or not is_widget_valid(self):
+        """Safely view invoice"""
+        if self.is_closing:
             return
         if self.controller:
             self.controller.view_invoice(invoice_id)
     
     def safe_delete_invoice(self, invoice_id):
-        """Safely delete invoice with widget validation"""
-        if self.is_closing or not is_widget_valid(self):
+        """Safely delete invoice"""
+        if self.is_closing:
             return
         if self.controller:
             self.controller.delete_invoice(invoice_id)
     
-    def safe_send_invoice_email(self, invoice_id):
-        """Safely send invoice email with widget validation"""
-        if self.is_closing or not is_widget_valid(self):
+    def export_pdf_direct(self, invoice_id):
+        """Direct PDF export with safety checks"""
+        if self.is_closing:
             return
-        self.send_invoice_email(invoice_id)
+        
+        # Disable the PDF button temporarily to prevent multiple clicks
+        sender = self.sender()
+        if sender:
+            sender.setEnabled(False)
+        
+        try:
+            self.update_status("Generating PDF...")
+            QApplication.processEvents()  # Allow UI to update
+            
+            # Call the controller's export method directly
+            if self.controller:
+                self.controller.export_pdf(invoice_id)
+            
+            # Only update status if widget is still valid
+            if self.isWidgetValid():
+                self.update_status("PDF exported successfully")
+                QMessageBox.information(self, "Success", "PDF exported successfully!")
+        except Exception as e:
+            # Only show error if widget is still valid
+            if self.isWidgetValid():
+                self.update_status(f"PDF export failed: {str(e)}")
+                QMessageBox.warning(self, "Export Failed", f"Failed to export PDF: {str(e)}")
+        finally:
+            # Re-enable the button if it exists and widget is valid
+            if sender and self.isWidgetValid():
+                sender.setEnabled(True)
+    
+    def safe_send_invoice_email(self, invoice_id):
+        """Safely send invoice email"""
+        if self.is_closing:
+            return
+        
+        if not self.controller:
+            return
+            
+        # Find invoice details
+        invoices = self.controller.model.get_all()
+        invoice = next((inv for inv in invoices if inv['id'] == invoice_id), None)
+        
+        if invoice and invoice.get('customer_email'):
+            reply = QMessageBox.question(self, "Send Email", 
+                                        f"Send invoice to {invoice.get('customer_email')}?",
+                                        QMessageBox.Yes | QMessageBox.No)
+            if reply == QMessageBox.Yes:
+                try:
+                    from views.invoice_viewer import InvoiceViewer
+                    viewer = InvoiceViewer(invoice, self.auth_service, self)
+                    viewer.send_email_dialog()
+                    self.update_status("Email sent successfully")
+                except Exception as e:
+                    self.update_status(f"Failed to send email: {str(e)}")
+                    QMessageBox.warning(self, "Email Failed", f"Failed to send email: {str(e)}")
+        else:
+            QMessageBox.warning(self, "No Email", "Customer email not available")
     
     def filter_invoices(self, invoices):
         """Apply all filters to invoices"""
-        if self.is_closing or not is_widget_valid(self):
+        if self.is_closing:
             return invoices
             
         filtered = invoices.copy()
@@ -675,7 +684,7 @@ class InvoicesWidget(QWidget):
     
     def on_search(self, text):
         """Handle search text change"""
-        if self.is_closing or not is_widget_valid(self):
+        if self.is_closing:
             return
         if self.controller and hasattr(self.controller, 'model'):
             invoices = self.controller.model.get_all()
@@ -684,112 +693,16 @@ class InvoicesWidget(QWidget):
     
     def on_filter_changed(self):
         """Handle filter changes"""
-        if self.is_closing or not is_widget_valid(self):
+        if self.is_closing:
             return
         if self.controller and hasattr(self.controller, 'model'):
             invoices = self.controller.model.get_all()
             if invoices:
                 self.populate_table(invoices)
     
-    def export_pdf_with_progress(self, invoice_id):
-        """Export PDF with progress indicator using separate thread"""
-        if self.is_closing or not is_widget_valid(self):
-            return
-        
-        # Show progress bar
-        if is_widget_valid(self.progress_bar):
-            self.progress_bar.setVisible(True)
-            self.progress_bar.setValue(0)
-            self.update_status("Generating PDF...")
-        
-        # Create thread and worker for PDF export
-        thread = QThread()
-        worker = PDFExportWorker(invoice_id, self.auth_service)
-        worker.moveToThread(thread)
-        
-        # Store references to prevent garbage collection
-        self.pdf_export_threads.append((thread, worker))
-        
-        # Connect signals
-        thread.started.connect(worker.export)
-        worker.finished.connect(lambda success, msg: self.on_pdf_export_finished(success, msg, thread, worker))
-        
-        # Start the thread
-        thread.start()
-    
-    def on_pdf_export_finished(self, success, message, thread, worker):
-        """Handle PDF export completion"""
-        # Remove from tracking list
-        if (thread, worker) in self.pdf_export_threads:
-            self.pdf_export_threads.remove((thread, worker))
-        
-        # Check if widget is still valid
-        if not is_widget_valid(self):
-            # Clean up thread
-            thread.quit()
-            thread.wait(1000)
-            worker.deleteLater()
-            thread.deleteLater()
-            return
-        
-        # Update progress bar
-        if is_widget_valid(self.progress_bar):
-            if success:
-                self.progress_bar.setValue(100)
-                self.update_status(message)
-                # Hide progress bar after delay
-                QTimer.singleShot(1500, self.hide_progress_bar)
-            else:
-                self.progress_bar.setVisible(False)
-                self.update_status(f"PDF export failed: {message}")
-                QMessageBox.warning(self, "Export Failed", f"Failed to export PDF: {message}")
-        
-        # Clean up thread
-        thread.quit()
-        thread.wait(1000)
-        worker.deleteLater()
-        thread.deleteLater()
-    
-    def hide_progress_bar(self):
-        """Hide progress bar safely"""
-        if is_widget_valid(self) and is_widget_valid(self.progress_bar):
-            self.progress_bar.setVisible(False)
-            self.progress_bar.setValue(0)
-    
-    def send_invoice_email(self, invoice_id):
-        """Send invoice via email"""
-        if self.is_closing or not is_widget_valid(self):
-            return
-        
-        if not self.controller:
-            return
-            
-        # Find invoice details
-        invoices = self.controller.model.get_all()
-        invoice = next((inv for inv in invoices if inv['id'] == invoice_id), None)
-        
-        if invoice and invoice.get('customer_email'):
-            reply = QMessageBox.question(self, "Send Email", 
-                                        f"Send invoice to {invoice.get('customer_email')}?",
-                                        QMessageBox.Yes | QMessageBox.No)
-            if reply == QMessageBox.Yes:
-                self.update_status(f"Sending invoice to {invoice.get('customer_email')}...")
-                
-                # Call the controller's method to send email
-                try:
-                    from views.invoice_viewer import InvoiceViewer
-                    viewer = InvoiceViewer(invoice, self.auth_service, self)
-                    viewer.send_email_dialog()
-                    self.update_status("Email sent successfully")
-                except Exception as e:
-                    self.update_status(f"Failed to send email: {str(e)}")
-                    QMessageBox.warning(self, "Email Failed", f"Failed to send email: {str(e)}")
-        else:
-            QMessageBox.warning(self, "No Email", "Customer email not available")
-    
     def export_data(self):
         """Export invoice data to CSV"""
-        if self.is_closing or not is_widget_valid(self):
+        if self.is_closing:
             return
         
         if not self.controller:
@@ -832,7 +745,7 @@ class InvoicesWidget(QWidget):
     
     def show_summary(self):
         """Show summary report dialog"""
-        if self.is_closing or not is_widget_valid(self):
+        if self.is_closing:
             return
         
         if not self.controller:
@@ -871,13 +784,18 @@ class InvoicesWidget(QWidget):
         msg.exec_()
     
     def update_status(self, message):
-        """Update status bar message"""
-        if is_widget_valid(self):
-            self.status_label.setText(message)
+        """Update status bar message with safety check"""
+        try:
+            if not self.is_closing and self.status_label and not self.status_label.isHidden():
+                self.status_label.setText(message)
+                QApplication.processEvents()
+        except (RuntimeError, AttributeError):
+            # Widget has been deleted, ignore
+            pass
     
     def refresh(self):
         """Refresh the invoice list"""
-        if self.is_closing or not is_widget_valid(self):
+        if self.is_closing:
             return
         self.update_status("Refreshing invoices...")
         if self.controller:
