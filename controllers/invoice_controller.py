@@ -1,4 +1,6 @@
 from models.invoice import Invoice
+from utils.pdf_generator import PDFGenerator
+from controllers.settings_controller import SettingsController
 from PyQt5.QtWidgets import QMessageBox, QFileDialog
 from PyQt5.QtCore import QUrl
 from PyQt5.QtGui import QDesktopServices
@@ -12,6 +14,7 @@ class InvoiceController:
         self.view = view
         self.auth_service = auth_service
         self.model = Invoice()
+        self.settings_controller = SettingsController()
     
     def load_invoices(self):
         invoices = self.model.get_all()
@@ -22,10 +25,10 @@ class InvoiceController:
     def create_invoice(self):
         from views.invoice_dialog import InvoiceDialog
         dialog = InvoiceDialog()
-        result = dialog.exec_()
-        if result:
+        if dialog.exec_():
             self.load_invoices()
-            QMessageBox.information(self.view, "Success", "Invoice created successfully!")
+            # Success message is already shown in the dialog, so don't show duplicate
+            # QMessageBox.information(self.view, "Success", "Invoice created successfully!")
     
     def view_invoice(self, invoice_id):
         invoice = self.model.get_by_id(invoice_id)
@@ -33,9 +36,37 @@ class InvoiceController:
             from views.invoice_viewer import InvoiceViewer
             viewer = InvoiceViewer(invoice, self.auth_service)
             viewer.exec_()
+            self.load_invoices()  # Refresh after potential status changes
     
     def export_pdf(self, invoice_id):
-        QMessageBox.information(self.view, "Info", "PDF export feature coming soon!")
+        try:
+            invoice = self.model.get_by_id(invoice_id)
+            if not invoice:
+                QMessageBox.warning(self.view, "Error", "Invoice not found!")
+                return
+            
+            settings = self.settings_controller.get_settings()
+            
+            file_path, _ = QFileDialog.getSaveFileName(
+                self.view, 
+                "Save PDF", 
+                f"Invoice_{invoice['invoice_number']}.pdf",
+                "PDF Files (*.pdf)"
+            )
+            
+            if file_path:
+                pdf_gen = PDFGenerator(invoice, settings)
+                pdf_gen.generate(file_path)
+                
+                QMessageBox.information(self.view, "Success", f"PDF exported successfully!\nLocation: {file_path}")
+                
+                reply = QMessageBox.question(self.view, "Open PDF", 
+                                            "PDF created successfully! Would you like to open it?",
+                                            QMessageBox.Yes | QMessageBox.No)
+                if reply == QMessageBox.Yes:
+                    QDesktopServices.openUrl(QUrl.fromLocalFile(file_path))
+        except Exception as e:
+            QMessageBox.critical(self.view, "Error", f"Failed to export PDF: {str(e)}")
     
     def delete_invoice(self, invoice_id):
         reply = QMessageBox.question(self.view, "Confirm Delete", 

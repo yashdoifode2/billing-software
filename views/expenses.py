@@ -89,33 +89,13 @@ class ExpensesWidget(QWidget):
             edit_btn = QPushButton("✏️")
             edit_btn.setFixedSize(35, 30)
             edit_btn.setToolTip("Edit Expense")
-            edit_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #3498db;
-                    color: white;
-                    border: none;
-                    border-radius: 3px;
-                }
-                QPushButton:hover {
-                    background-color: #2980b9;
-                }
-            """)
+            edit_btn.setStyleSheet("background-color: #3498db; color: white; border: none; border-radius: 3px;")
             edit_btn.clicked.connect(lambda checked, eid=expense['id']: self.controller.edit_expense(eid))
             
             delete_btn = QPushButton("🗑️")
             delete_btn.setFixedSize(35, 30)
             delete_btn.setToolTip("Delete Expense")
-            delete_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #e74c3c;
-                    color: white;
-                    border: none;
-                    border-radius: 3px;
-                }
-                QPushButton:hover {
-                    background-color: #c0392b;
-                }
-            """)
+            delete_btn.setStyleSheet("background-color: #e74c3c; color: white; border: none; border-radius: 3px;")
             delete_btn.clicked.connect(lambda checked, eid=expense['id']: self.controller.delete_expense(eid))
             
             actions_layout.addWidget(edit_btn)

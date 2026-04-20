@@ -13,17 +13,9 @@ class Invoice:
             tax_total = 0
             
             for item in items:
-                subtotal += item['quantity'] * item['unit_price']
-                # Calculate tax based on item structure
-                if 'tax_amount' in item:
-                    tax_total += item['tax_amount']
-                elif 'cgst_rate' in item and 'sgst_rate' in item:
-                    cgst = item['quantity'] * item['unit_price'] * item.get('cgst_rate', 0) / 100
-                    sgst = item['quantity'] * item['unit_price'] * item.get('sgst_rate', 0) / 100
-                    tax_total += cgst + sgst
-                elif 'igst_rate' in item:
-                    igst = item['quantity'] * item['unit_price'] * item.get('igst_rate', 0) / 100
-                    tax_total += igst
+                item_subtotal = item['quantity'] * item['unit_price']
+                subtotal += item_subtotal
+                tax_total += item.get('tax_amount', 0)
             
             grand_total = subtotal + tax_total
             
@@ -45,40 +37,28 @@ class Invoice:
             
             # Create invoice
             query = """
-                INSERT INTO invoices (invoice_number, customer_id, subtotal, tax_total, grand_total, notes, due_date)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO invoices (invoice_number, customer_id, subtotal, tax_total, grand_total, notes, due_date, status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """
             invoice_id = self.db.execute_query(query, (
                 invoice_number, customer_id, subtotal, tax_total, grand_total, notes, 
-                due_date.strftime('%Y-%m-%d %H:%M:%S')
+                due_date.strftime('%Y-%m-%d %H:%M:%S'), 'pending', datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             ))
             
             # Create invoice items
             for item in items:
-                # Calculate tax amounts for each item
                 quantity = item['quantity']
                 unit_price = item['unit_price']
-                subtotal_item = quantity * unit_price
+                item_subtotal = quantity * unit_price
                 
-                if 'tax_amount' in item:
-                    tax_amount = item['tax_amount']
-                    cgst_amount = item.get('cgst_amount', 0)
-                    sgst_amount = item.get('sgst_amount', 0)
-                    igst_amount = item.get('igst_amount', 0)
-                    cgst_rate = item.get('cgst_rate', 0)
-                    sgst_rate = item.get('sgst_rate', 0)
-                    igst_rate = item.get('igst_rate', 0)
-                else:
-                    # Calculate from rates
-                    cgst_rate = item.get('cgst_rate', 0)
-                    sgst_rate = item.get('sgst_rate', 0)
-                    igst_rate = item.get('igst_rate', 0)
-                    cgst_amount = subtotal_item * cgst_rate / 100
-                    sgst_amount = subtotal_item * sgst_rate / 100
-                    igst_amount = subtotal_item * igst_rate / 100
-                    tax_amount = cgst_amount + sgst_amount + igst_amount
-                
-                total_item = subtotal_item + tax_amount
+                cgst_rate = item.get('cgst_rate', 0)
+                sgst_rate = item.get('sgst_rate', 0)
+                igst_rate = item.get('igst_rate', 0)
+                cgst_amount = item.get('cgst_amount', 0)
+                sgst_amount = item.get('sgst_amount', 0)
+                igst_amount = item.get('igst_amount', 0)
+                tax_amount = item.get('tax_amount', 0)
+                item_total = item_subtotal + tax_amount
                 
                 item_query = """
                     INSERT INTO invoice_items (invoice_id, product_id, quantity, unit_price, 
@@ -89,7 +69,7 @@ class Invoice:
                 self.db.execute_query(item_query, (
                     invoice_id, item['product_id'], quantity, unit_price,
                     cgst_rate, sgst_rate, igst_rate,
-                    cgst_amount, sgst_amount, igst_amount, total_item
+                    cgst_amount, sgst_amount, igst_amount, item_total
                 ))
             
             return invoice_id
@@ -100,19 +80,38 @@ class Invoice:
             traceback.print_exc()
             return None
     
+    def update_status(self, invoice_id, status):
+        """Update invoice status"""
+        query = "UPDATE invoices SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+        return self.db.execute_query(query, (status, invoice_id))
+    
+    def update_payment_status(self, invoice_id, paid_amount):
+        """Update payment status and amount"""
+        invoice = self.get_by_id(invoice_id)
+        if invoice:
+            new_paid = invoice.get('paid_amount', 0) + paid_amount
+            payment_status = 'paid' if new_paid >= invoice['grand_total'] else 'partial'
+            invoice_status = 'paid' if payment_status == 'paid' else invoice.get('status', 'pending')
+            
+            query = """
+                UPDATE invoices 
+                SET paid_amount = ?, payment_status = ?, status = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """
+            return self.db.execute_query(query, (new_paid, payment_status, invoice_status, invoice_id))
+        return None
+    
     def get_all(self, limit=100, offset=0):
-        """Get all invoices with pagination"""
         query = """
             SELECT i.*, c.name as customer_name, c.phone, c.email
             FROM invoices i
             LEFT JOIN customers c ON i.customer_id = c.id
-            ORDER BY i.invoice_date DESC
+            ORDER BY i.created_at DESC
             LIMIT ? OFFSET ?
         """
         return self.db.fetch_all(query, (limit, offset))
     
     def get_by_id(self, invoice_id):
-        """Get invoice by ID with items"""
         query = """
             SELECT i.*, c.name as customer_name, c.address, c.gst_number, c.phone, c.email
             FROM invoices i
@@ -122,7 +121,7 @@ class Invoice:
         invoice = self.db.fetch_one(query, (invoice_id,))
         if invoice:
             items_query = """
-                SELECT ii.*, p.name as product_name, p.description
+                SELECT ii.*, p.name as product_name, p.description, p.hsn_code
                 FROM invoice_items ii
                 LEFT JOIN products p ON ii.product_id = p.id
                 WHERE ii.invoice_id = ?
@@ -131,83 +130,43 @@ class Invoice:
         return invoice
     
     def get_last_invoice_number(self):
-        """Get last invoice number"""
         query = "SELECT invoice_number FROM invoices ORDER BY id DESC LIMIT 1"
         result = self.db.fetch_one(query)
         return result['invoice_number'] if result else None
     
     def get_settings(self):
-        """Get system settings"""
         query = "SELECT setting_key, setting_value FROM settings"
         results = self.db.fetch_all(query)
         return {item['setting_key']: item['setting_value'] for item in results}
     
     def delete(self, invoice_id):
-        """Delete invoice"""
-        # First delete items
         self.db.execute_query("DELETE FROM invoice_items WHERE invoice_id = ?", (invoice_id,))
-        # Then delete invoice
         query = "DELETE FROM invoices WHERE id=?"
         return self.db.execute_query(query, (invoice_id,))
     
     def get_dashboard_stats(self):
-        """Get dashboard statistics"""
-        # Total invoices
         total_invoices = self.db.fetch_one("SELECT COUNT(*) as count FROM invoices")
+        total_revenue = self.db.fetch_one("SELECT COALESCE(SUM(grand_total), 0) as total FROM invoices WHERE status='paid'")
+        pending = self.db.fetch_one("SELECT COALESCE(SUM(grand_total - paid_amount), 0) as pending FROM invoices WHERE status != 'paid'")
         
-        # Total revenue (paid invoices)
-        total_revenue = self.db.fetch_one("SELECT SUM(grand_total) as total FROM invoices WHERE status='paid'")
-        
-        # Pending amount
-        pending = self.db.fetch_one("SELECT SUM(grand_total - paid_amount) as pending FROM invoices WHERE status != 'paid'")
-        
-        # Recent invoices
         recent_invoices = self.db.fetch_all("""
             SELECT i.*, c.name as customer_name 
             FROM invoices i
             LEFT JOIN customers c ON i.customer_id = c.id
-            ORDER BY i.invoice_date DESC LIMIT 10
+            ORDER BY i.created_at DESC LIMIT 5
         """)
         
         return {
             'total_invoices': total_invoices['count'] if total_invoices else 0,
-            'total_revenue': total_revenue['total'] if total_revenue and total_revenue['total'] else 0,
-            'pending_amount': pending['pending'] if pending and pending['pending'] else 0,
+            'total_revenue': total_revenue['total'] if total_revenue else 0,
+            'pending_amount': pending['pending'] if pending else 0,
             'recent_invoices': recent_invoices
         }
     
     def get_recent_invoices(self, limit=10):
-        """Get recent invoices"""
         return self.db.fetch_all("""
             SELECT i.*, c.name as customer_name 
             FROM invoices i
             LEFT JOIN customers c ON i.customer_id = c.id
-            ORDER BY i.invoice_date DESC LIMIT ?
+            ORDER BY i.created_at DESC LIMIT ?
         """, (limit,))
-    
-    def record_payment(self, invoice_id, amount, payment_method, reference_number="", notes=""):
-        """Record payment for invoice"""
-        # Get current invoice
-        invoice = self.get_by_id(invoice_id)
-        if not invoice:
-            return False
-        
-        new_paid = invoice['paid_amount'] + amount
-        status = 'paid' if new_paid >= invoice['grand_total'] else 'partial'
-        
-        # Record payment
-        query = """
-            INSERT INTO invoice_payments (invoice_id, amount, payment_method, reference_number, notes)
-            VALUES (?, ?, ?, ?, ?)
-        """
-        self.db.execute_query(query, (invoice_id, amount, payment_method, reference_number, notes))
-        
-        # Update invoice
-        update_query = """
-            UPDATE invoices 
-            SET paid_amount = ?, status = ?, payment_status = ?
-            WHERE id = ?
-        """
-        self.db.execute_query(update_query, (new_paid, status, 'partial' if status == 'partial' else 'paid', invoice_id))
-        
-        return True

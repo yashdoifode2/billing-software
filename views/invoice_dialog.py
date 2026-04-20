@@ -18,6 +18,7 @@ class InvoiceDialog(QDialog):
         self.product_model = Product()
         self.invoice_model = Invoice()
         self.items = []
+        self.is_saving = False  # Flag to prevent duplicate saves
         self.setup_ui()
         self.load_data()
         self.setWindowTitle("Create Invoice")
@@ -108,7 +109,6 @@ class InvoiceDialog(QDialog):
         layout.addLayout(button_layout)
     
     def load_data(self):
-        # Load customers
         customers = self.customer_model.get_all()
         if customers:
             for customer in customers:
@@ -162,6 +162,10 @@ class InvoiceDialog(QDialog):
         self.total_label.setText(f"₹{total:.2f}")
     
     def save_invoice(self):
+        # Prevent duplicate saves
+        if self.is_saving:
+            return
+        
         if self.customer_combo.currentIndex() < 0:
             QMessageBox.warning(self, "Error", "Please select a customer!")
             return
@@ -170,39 +174,50 @@ class InvoiceDialog(QDialog):
             QMessageBox.warning(self, "Error", "Please add at least one item!")
             return
         
-        customer_id = self.customer_combo.currentData()
-        notes = self.notes_input.toPlainText()
-        
-        # Prepare items for saving
-        invoice_items = []
-        for item in self.items:
-            invoice_items.append({
-                'product_id': item['product_id'],
-                'quantity': item['quantity'],
-                'unit_price': item['unit_price'],
-                'tax_rate': item.get('tax_rate', 0),
-                'cgst_rate': item.get('cgst_rate', 0),
-                'sgst_rate': item.get('sgst_rate', 0),
-                'igst_rate': item.get('igst_rate', 0),
-                'cgst_amount': item.get('cgst_amount', 0),
-                'sgst_amount': item.get('sgst_amount', 0),
-                'igst_amount': item.get('igst_amount', 0),
-                'tax_amount': item.get('tax_amount', 0),
-                'total': item['total']
-            })
+        self.is_saving = True
+        self.save_btn.setEnabled(False)
+        self.save_btn.setText("Saving...")
         
         try:
+            customer_id = self.customer_combo.currentData()
+            notes = self.notes_input.toPlainText()
+            
+            # Prepare items for saving
+            invoice_items = []
+            for item in self.items:
+                invoice_items.append({
+                    'product_id': item['product_id'],
+                    'quantity': item['quantity'],
+                    'unit_price': item['unit_price'],
+                    'tax_rate': item.get('tax_rate', 0),
+                    'cgst_rate': item.get('cgst_rate', 0),
+                    'sgst_rate': item.get('sgst_rate', 0),
+                    'igst_rate': item.get('igst_rate', 0),
+                    'cgst_amount': item.get('cgst_amount', 0),
+                    'sgst_amount': item.get('sgst_amount', 0),
+                    'igst_amount': item.get('igst_amount', 0),
+                    'tax_amount': item.get('tax_amount', 0),
+                    'total': item['total']
+                })
+            
             invoice_id = self.invoice_model.create(customer_id, invoice_items, notes)
             if invoice_id:
-                QMessageBox.information(self, "Success", f"Invoice created successfully!")
+                QMessageBox.information(self, "Success", "Invoice created successfully!")
                 self.accept()
             else:
                 QMessageBox.warning(self, "Error", "Failed to create invoice!")
+                self.is_saving = False
+                self.save_btn.setEnabled(True)
+                self.save_btn.setText("💾 Save Invoice")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error creating invoice: {str(e)}")
+            self.is_saving = False
+            self.save_btn.setEnabled(True)
+            self.save_btn.setText("💾 Save Invoice")
     
-    def accept(self):
-        self.save_invoice()
+    def reject(self):
+        if not self.is_saving:
+            super().reject()
 
 
 class AddItemDialog(QDialog):
