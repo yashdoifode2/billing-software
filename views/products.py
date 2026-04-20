@@ -420,16 +420,22 @@ class ProductDetailsWidget(QWidget):
         if product:
             self.product_name.setText(product.get('name', 'Unknown'))
             
+            # Handle stock display properly (float or int)
+            stock = product.get('stock_quantity', 0)
+            if isinstance(stock, float) and stock.is_integer():
+                stock_display = int(stock)
+            else:
+                stock_display = stock
+            
             details = f"""
             📋 SKU: {product.get('sku', 'N/A')}<br>
             💰 Price: Rs. {product.get('price', 0):,.2f}<br>
-            📊 Stock: {product.get('stock_quantity', 0)} units<br>
+            📊 Stock: {stock_display} units<br>
             🏷️ Category: {product.get('category', 'N/A')}<br>
             📈 Tax Rate: {product.get('tax_rate_cgst', 0) + product.get('tax_rate_sgst', 0)}%<br>
             """
             self.product_details.setText(details)
             
-            stock = product.get('stock_quantity', 0)
             max_stock = 1000
             percentage = min(100, (stock / max_stock) * 100)
             
@@ -439,17 +445,17 @@ class ProductDetailsWidget(QWidget):
                 self.stock_progress.setStyleSheet("""
                     QProgressBar::chunk { background-color: #e74c3c; border-radius: 5px; }
                 """)
-                self.stock_label.setText(f"⚠️ Low Stock! Only {stock} units remaining")
+                self.stock_label.setText(f"⚠️ Low Stock! Only {stock_display} units remaining")
             elif stock <= 50:
                 self.stock_progress.setStyleSheet("""
                     QProgressBar::chunk { background-color: #f39c12; border-radius: 5px; }
                 """)
-                self.stock_label.setText(f"📦 Stock level: {stock} units (Medium)")
+                self.stock_label.setText(f"📦 Stock level: {stock_display} units (Medium)")
             else:
                 self.stock_progress.setStyleSheet("""
                     QProgressBar::chunk { background-color: #2ecc71; border-radius: 5px; }
                 """)
-                self.stock_label.setText(f"✅ Stock level: {stock} units (Good)")
+                self.stock_label.setText(f"✅ Stock level: {stock_display} units (Good)")
                 
     def edit_product(self):
         if self.current_product:
@@ -647,7 +653,7 @@ class ProductsWidget(QWidget):
         self.table.setRowCount(len(products))
         
         for row, product in enumerate(products):
-            self.table.setItem(row, 0, QTableWidgetItem(str(product['id'])))
+            self.table.setItem(row, 0, QTableWidgetItem(str(product.get('id', ''))))
             self.table.setItem(row, 1, QTableWidgetItem(product.get('sku', 'N/A')))
             self.table.setItem(row, 2, QTableWidgetItem(product.get('name', 'N/A')))
             self.table.setItem(row, 3, QTableWidgetItem(product.get('category', 'N/A')))
@@ -658,8 +664,14 @@ class ProductsWidget(QWidget):
                 price_item.setForeground(QColor("#28a745"))
             self.table.setItem(row, 4, price_item)
             
+            # Handle stock display - show as integer if it's a whole number
             stock = product.get('stock_quantity', 0)
-            stock_item = QTableWidgetItem(str(stock))
+            if isinstance(stock, float) and stock.is_integer():
+                stock_display = str(int(stock))
+            else:
+                stock_display = str(stock)
+            
+            stock_item = QTableWidgetItem(stock_display)
             if stock <= 10:
                 stock_item.setForeground(QColor("#e74c3c"))
             elif stock <= 50:
@@ -725,20 +737,35 @@ class ProductsWidget(QWidget):
             print(f"Error updating charts: {e}")
         
     def on_product_selected(self):
+        """Handle product selection from table"""
         selected_rows = self.table.selectedItems()
         if selected_rows:
             row = selected_rows[0].row()
-            product = {
-                'id': int(self.table.item(row, 0).text()),
-                'sku': self.table.item(row, 1).text(),
-                'name': self.table.item(row, 2).text(),
-                'category': self.table.item(row, 3).text(),
-                'price': float(self.table.item(row, 4).text().replace('Rs.', '').replace(',', '').strip()),
-                'stock_quantity': int(self.table.item(row, 5).text()),
-            }
-            self.current_product = product
-            self.product_details.update_product(product)
-            
+            try:
+                # Safely extract product data with error handling
+                product_id_text = self.table.item(row, 0).text()
+                sku_text = self.table.item(row, 1).text()
+                name_text = self.table.item(row, 2).text()
+                category_text = self.table.item(row, 3).text()
+                price_text = self.table.item(row, 4).text().replace('Rs.', '').replace(',', '').strip()
+                stock_text = self.table.item(row, 5).text()
+                
+                # Convert values with proper type handling
+                product = {
+                    'id': int(product_id_text) if product_id_text.isdigit() else 0,
+                    'sku': sku_text,
+                    'name': name_text,
+                    'category': category_text,
+                    'price': float(price_text) if price_text else 0.0,
+                    'stock_quantity': float(stock_text) if stock_text else 0.0,  # Use float instead of int
+                }
+                self.current_product = product
+                self.product_details.update_product(product)
+            except (ValueError, AttributeError) as e:
+                print(f"Error selecting product: {e}")
+                # Optionally show a warning to user
+                QMessageBox.warning(self, "Selection Error", "Could not load product details")
+        
     def delete_product_with_confirmation(self, product_id):
         reply = QMessageBox.question(self, 'Confirm Delete', 
                                      'Are you sure you want to delete this product?',
