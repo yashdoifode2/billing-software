@@ -1,11 +1,11 @@
-# enhanced_dashboard.py
+# fixed_dashboard.py
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                              QFrame, QTableWidget, QTableWidgetItem, QGridLayout,
                              QDateEdit, QPushButton, QComboBox, QGroupBox,
                              QSplitter, QHeaderView, QScrollArea, QSizePolicy,
                              QSpacerItem, QApplication, QGraphicsDropShadowEffect)
 from PyQt5.QtCore import Qt, QDate, QTimer, QPropertyAnimation, QEasingCurve, QRect, pyqtSignal
-from PyQt5.QtGui import QFont, QPalette, QColor, QLinearGradient, QBrush, QPainter, QPen
+from PyQt5.QtGui import QFont, QPalette, QColor, QLinearGradient, QBrush, QPainter, QFontDatabase
 import sys
 import os
 from datetime import datetime, timedelta
@@ -13,6 +13,10 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import numpy as np
+
+# Set matplotlib to use a font that supports Rupee symbol
+plt.rcParams['font.family'] = 'sans-serif'
+plt.rcParams['font.sans-serif'] = ['Arial', 'DejaVu Sans', 'Liberation Sans', 'Noto Sans']
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from services.report_service import ReportService
@@ -34,13 +38,12 @@ class ModernCard(QFrame):
         self.setFrameStyle(QFrame.StyledPanel)
         self.setStyleSheet(f"""
             ModernCard {{
-                background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 white, stop:1 #f8f9fa);
+                background-color: white;
                 border-radius: 15px;
                 border: 1px solid #e0e0e0;
             }}
             ModernCard:hover {{
-                background-color: white;
+                background-color: #f8f9fa;
                 border: 1px solid {self.color};
             }}
         """)
@@ -49,13 +52,10 @@ class ModernCard(QFrame):
         layout.setSpacing(8)
         layout.setContentsMargins(20, 15, 20, 15)
         
-        # Title with icon placeholder
-        title_layout = QHBoxLayout()
+        # Title
         title_label = QLabel(self.title)
-        title_label.setStyleSheet("color: #6c757d; font-size: 13px; font-weight: 500; letter-spacing: 0.5px;")
-        title_layout.addWidget(title_label)
-        title_layout.addStretch()
-        layout.addLayout(title_layout)
+        title_label.setStyleSheet("color: #6c757d; font-size: 13px; font-weight: 500;")
+        layout.addWidget(title_label)
         
         # Value label
         self.value_label = QLabel("₹0")
@@ -164,52 +164,60 @@ class ChartWidget(FigureCanvas):
         self.setParent(parent)
         self.setMinimumHeight(300)
         
-        # Apply modern styling
-        plt.style.use('seaborn-v0_8-darkgrid')
+        # Use a style that doesn't require special fonts
         self.ax = self.figure.add_subplot(111)
         self.ax.set_facecolor('#f8f9fa')
         
     def plot_revenue_trend(self, dates, revenues):
         """Plot revenue trend over time"""
-        self.ax.clear()
-        
-        # Create gradient fill
-        self.ax.plot(dates, revenues, marker='o', linewidth=2, color='#3498db', markersize=6)
-        self.ax.fill_between(range(len(dates)), revenues, alpha=0.3, color='#3498db')
-        
-        # Styling
-        self.ax.set_title('Revenue Trend', fontsize=14, fontweight='bold', pad=20)
-        self.ax.set_xlabel('Date', fontsize=11)
-        self.ax.set_ylabel('Revenue (₹)', fontsize=11)
-        self.ax.grid(True, alpha=0.3, linestyle='--')
-        self.ax.tick_params(axis='both', labelsize=10)
-        
-        # Rotate x labels if needed
-        plt.setp(self.ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
-        
-        self.figure.tight_layout()
-        self.draw()
-        
+        try:
+            self.ax.clear()
+            
+            # Convert revenues to float and handle Rupee symbol
+            revenues_clean = [float(r) if r else 0 for r in revenues]
+            
+            # Create gradient fill
+            self.ax.plot(dates, revenues_clean, marker='o', linewidth=2, color='#3498db', markersize=6)
+            self.ax.fill_between(range(len(dates)), revenues_clean, alpha=0.3, color='#3498db')
+            
+            # Styling
+            self.ax.set_title('Revenue Trend', fontsize=14, fontweight='bold', pad=20)
+            self.ax.set_xlabel('Date', fontsize=11)
+            self.ax.set_ylabel('Revenue (Rs.)', fontsize=11)  # Use Rs. instead of ₹ symbol
+            self.ax.grid(True, alpha=0.3, linestyle='--')
+            self.ax.tick_params(axis='both', labelsize=10)
+            
+            # Rotate x labels if needed
+            plt.setp(self.ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
+            
+            self.figure.tight_layout()
+            self.draw()
+        except Exception as e:
+            print(f"Error plotting revenue trend: {e}")
+            
     def plot_expense_breakdown(self, categories, amounts):
         """Plot expense breakdown as pie chart"""
-        self.ax.clear()
-        
-        colors = ['#3498db', '#e74c3c', '#f39c12', '#2ecc71', '#9b59b6', '#1abc9c']
-        wedges, texts, autotexts = self.ax.pie(amounts, labels=categories, autopct='%1.1f%%',
-                                                colors=colors[:len(categories)], startangle=90)
-        
-        # Style the text
-        for text in texts:
-            text.set_fontsize(10)
-        for autotext in autotexts:
-            autotext.set_color('white')
-            autotext.set_fontsize(10)
-            autotext.set_fontweight('bold')
+        try:
+            self.ax.clear()
             
-        self.ax.set_title('Expense Breakdown', fontsize=14, fontweight='bold', pad=20)
-        self.ax.axis('equal')
-        
-        self.draw()
+            colors = ['#3498db', '#e74c3c', '#f39c12', '#2ecc71', '#9b59b6', '#1abc9c']
+            wedges, texts, autotexts = self.ax.pie(amounts, labels=categories, autopct='%1.1f%%',
+                                                    colors=colors[:len(categories)], startangle=90)
+            
+            # Style the text
+            for text in texts:
+                text.set_fontsize(10)
+            for autotext in autotexts:
+                autotext.set_color('white')
+                autotext.set_fontsize(10)
+                autotext.set_fontweight('bold')
+                
+            self.ax.set_title('Expense Breakdown', fontsize=14, fontweight='bold', pad=20)
+            self.ax.axis('equal')
+            
+            self.draw()
+        except Exception as e:
+            print(f"Error plotting expense breakdown: {e}")
 
 class DashboardWidget(QWidget):
     def __init__(self, auth_service):
@@ -219,6 +227,7 @@ class DashboardWidget(QWidget):
         self.invoice_model = Invoice()
         self.expense_model = Expense()
         self.stats_cards = {}
+        self.charts = []  # Keep reference to charts to prevent garbage collection
         self.setup_ui()
         self.set_default_dates()
         self.refresh()
@@ -264,16 +273,14 @@ class DashboardWidget(QWidget):
         # Header Section
         header_layout = QHBoxLayout()
         
-        # Title with gradient effect
+        # Title with simple styling (no webkit)
         title_container = QWidget()
         title_layout = QVBoxLayout(title_container)
         title = QLabel("Dashboard")
         title.setStyleSheet("""
             font-size: 32px; 
             font-weight: bold;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
+            color: #2c3e50;
         """)
         title_layout.addWidget(title)
         
@@ -398,10 +405,12 @@ class DashboardWidget(QWidget):
         
         # Revenue Trend Chart
         self.revenue_chart = ChartWidget(self, width=6, height=4)
+        self.charts.append(self.revenue_chart)  # Keep reference
         charts_layout.addWidget(self.revenue_chart)
         
         # Expense Breakdown Chart
         self.expense_chart = ChartWidget(self, width=5, height=4)
+        self.charts.append(self.expense_chart)  # Keep reference
         charts_layout.addWidget(self.expense_chart)
         
         main_layout.addWidget(charts_container)
@@ -557,7 +566,6 @@ class DashboardWidget(QWidget):
             }}
             QPushButton:pressed {{
                 background-color: {hover_color};
-                padding-top: {int(padding.split()[0][0])+2}px;
             }}
         """
         
@@ -622,16 +630,15 @@ class DashboardWidget(QWidget):
             stats = self.get_filtered_stats(from_date, to_date)
             
             # Update stat cards
-            self.stats_cards['revenue'].update_value(f"₹{stats.get('total_revenue', 0):,.2f}")
+            self.stats_cards['revenue'].update_value(f"Rs. {stats.get('total_revenue', 0):,.2f}")
             self.stats_cards['invoices'].update_value(str(stats.get('total_invoices', 0)))
-            self.stats_cards['expenses'].update_value(f"₹{stats.get('total_expenses', 0):,.2f}")
+            self.stats_cards['expenses'].update_value(f"Rs. {stats.get('total_expenses', 0):,.2f}")
             
             profit = stats.get('net_profit', 0)
-            profit_color = "#27ae60" if profit >= 0 else "#e74c3c"
-            self.stats_cards['profit'].update_value(f"₹{profit:,.2f}")
+            self.stats_cards['profit'].update_value(f"Rs. {profit:,.2f}")
             
-            self.stats_cards['pending'].update_value(f"₹{stats.get('pending_amount', 0):,.2f}")
-            self.stats_cards['avg_invoice'].update_value(f"₹{stats.get('avg_invoice_value', 0):,.2f}")
+            self.stats_cards['pending'].update_value(f"Rs. {stats.get('pending_amount', 0):,.2f}")
+            self.stats_cards['avg_invoice'].update_value(f"Rs. {stats.get('avg_invoice_value', 0):,.2f}")
             
             # Update charts
             self.update_charts(from_date, to_date)
@@ -645,7 +652,7 @@ class DashboardWidget(QWidget):
                 self.recent_table.setItem(row, 2, QTableWidgetItem(invoice.get('invoice_date', 'N/A')[:10]))
                 self.recent_table.setItem(row, 3, QTableWidgetItem(invoice.get('due_date', 'N/A')[:10] if invoice.get('due_date') else 'N/A'))
                 
-                # Status with color and icon
+                # Status with color
                 status = invoice.get('status', 'pending')
                 status_item = QTableWidgetItem(status.upper())
                 status_colors = {
@@ -657,14 +664,9 @@ class DashboardWidget(QWidget):
                 status_item.setForeground(QColor(status_colors.get(status, '#6c757d')))
                 self.recent_table.setItem(row, 4, status_item)
                 
-                self.recent_table.setItem(row, 5, QTableWidgetItem(f"₹{invoice.get('grand_total', 0):,.2f}"))
+                self.recent_table.setItem(row, 5, QTableWidgetItem(f"Rs. {invoice.get('grand_total', 0):,.2f}"))
                 paid_amount = invoice.get('paid_amount', 0)
-                self.recent_table.setItem(row, 6, QTableWidgetItem(f"₹{paid_amount:,.2f}"))
-                
-                # Color code rows based on status
-                if status == 'overdue':
-                    for col in range(7):
-                        self.recent_table.item(row, col).setBackground(QColor(255, 240, 240))
+                self.recent_table.setItem(row, 6, QTableWidgetItem(f"Rs. {paid_amount:,.2f}"))
             
             # Update top products
             top_products = self.get_top_products(from_date, to_date)
@@ -677,7 +679,7 @@ class DashboardWidget(QWidget):
                 quantity_str = str(int(quantity)) if quantity.is_integer() else f"{quantity:.2f}"
                 self.top_products_table.setItem(row, 2, QTableWidgetItem(quantity_str))
                 revenue = product.get('total_revenue', 0)
-                self.top_products_table.setItem(row, 3, QTableWidgetItem(f"₹{revenue:,.2f}"))
+                self.top_products_table.setItem(row, 3, QTableWidgetItem(f"Rs. {revenue:,.2f}"))
                 
                 # Contribution percentage
                 contribution = (revenue / total_revenue * 100) if total_revenue > 0 else 0
@@ -693,10 +695,6 @@ class DashboardWidget(QWidget):
             self.top_products_table.resizeColumnsToContents()
             
             self.status_label.setText("Data loaded successfully")
-            
-            # Update refresh indicator
-            self.refresh_indicator.setStyleSheet("color: #28a745; font-size: 11px; font-weight: bold;")
-            QTimer.singleShot(2000, lambda: self.refresh_indicator.setStyleSheet("color: #6c757d; font-size: 11px;"))
             
         except Exception as e:
             self.status_label.setText(f"Error: {str(e)}")
@@ -719,7 +717,7 @@ class DashboardWidget(QWidget):
             db = DatabaseManager()
             revenue_data = db.fetch_all(query, (from_date, to_date))
             
-            if revenue_data:
+            if revenue_data and self.revenue_chart:
                 dates = [row['invoice_date'][5:10] for row in revenue_data]  # MM-DD format
                 revenues = [row['daily_revenue'] for row in revenue_data]
                 self.revenue_chart.plot_revenue_trend(dates, revenues)
@@ -735,7 +733,7 @@ class DashboardWidget(QWidget):
             """
             expense_data = db.fetch_all(expense_query, (from_date, to_date))
             
-            if expense_data:
+            if expense_data and self.expense_chart:
                 categories = [row['category'][:15] for row in expense_data]  # Truncate long names
                 amounts = [row['total'] for row in expense_data]
                 self.expense_chart.plot_expense_breakdown(categories, amounts)
