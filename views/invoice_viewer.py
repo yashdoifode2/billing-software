@@ -1,13 +1,159 @@
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
                              QTableWidget, QTableWidgetItem, QPushButton, QFrame,
-                             QComboBox, QMessageBox, QDoubleSpinBox, QHeaderView)
-from PyQt5.QtCore import Qt
+                             QComboBox, QMessageBox, QDoubleSpinBox, QHeaderView,
+                             QLineEdit, QProgressBar)
+from PyQt5.QtCore import Qt, QThread, pyqtSignal
 import sys
 import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from controllers.settings_controller import SettingsController
 from models.invoice import Invoice
+from utils.pdf_generator import PDFGenerator
+from services.email_service import EmailService
+
+class EmailWorker(QThread):
+    finished = pyqtSignal(bool, str)
+    progress = pyqtSignal(str)
+    
+    def __init__(self, to_email, invoice_data, settings):
+        super().__init__()
+        self.to_email = to_email
+        self.invoice_data = invoice_data
+        self.settings = settings
+    
+    def run(self):
+        try:
+            self.progress.emit("Generating PDF...")
+            
+            # Generate PDF temporarily
+            import tempfile
+            import os
+            from datetime import datetime
+            
+            temp_dir = tempfile.gettempdir()
+            pdf_filename = f"invoice_{self.invoice_data['invoice_number']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+            pdf_path = os.path.join(temp_dir, pdf_filename)
+            
+            # Create PDF
+            pdf_gen = PDFGenerator(self.invoice_data, self.settings)
+            pdf_gen.generate(pdf_path)
+            
+            self.progress.emit("Sending email...")
+            
+            # Send email
+            email_service = EmailService()
+            business_name = self.settings.get('business_name', 'Business')
+            subject = f"Invoice {self.invoice_data['invoice_number']} from {business_name}"
+            
+            # Create email body
+            currency = self.settings.get('currency_symbol', '₹')
+            body = f"""
+            <html>
+            <head>
+                <style>
+                    body {{ font-family: Arial, sans-serif; }}
+                    .header {{ background-color: #2c3e50; color: white; padding: 20px; text-align: center; }}
+                    .content {{ padding: 20px; }}
+                    .invoice-details {{ margin: 20px 0; }}
+                    table {{ width: 100%; border-collapse: collapse; }}
+                    th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+                    th {{ background-color: #3498db; color: white; }}
+                    .total {{ font-size: 18px; font-weight: bold; color: #27ae60; }}
+                    .footer {{ margin-top: 30px; padding: 20px; background-color: #ecf0f1; text-align: center; }}
+                </style>
+            </head>
+            <body>
+                <div class="header">
+                    <h2>{business_name}</h2>
+                    <p>{self.settings.get('business_address', '')}</p>
+                    <p>Phone: {self.settings.get('business_phone', '')} | Email: {self.settings.get('business_email', '')}</p>
+                </div>
+                
+                <div class="content">
+                    <h2>Invoice {self.invoice_data['invoice_number']}</h2>
+                    <p><strong>Date:</strong> {self.invoice_data['invoice_date'][:10]}</p>
+                    <p><strong>Due Date:</strong> {self.invoice_data.get('due_date', 'N/A')[:10] if self.invoice_data.get('due_date') else 'N/A'}</p>
+                    
+                    <div class="invoice-details">
+                        <h3>Bill To:</h3>
+                        <p>
+                            <strong>{self.invoice_data.get('customer_name', 'N/A')}</strong><br>
+                            {self.invoice_data.get('address', 'N/A')}<br>
+                            Phone: {self.invoice_data.get('phone', 'N/A')}<br>
+                            GST: {self.invoice_data.get('gst_number', 'N/A')}
+                        </p>
+                    </div>
+                    
+                    <h3>Invoice Items:</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Description</th>
+                                <th>Quantity</th>
+                                <th>Unit Price</th>
+                                <th>Tax</th>
+                                <th>Amount</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            """
+            
+            for item in self.invoice_data['items']:
+                tax_rate = item.get('cgst_rate', 0) + item.get('sgst_rate', 0) + item.get('igst_rate', 0)
+                body += f"""
+                            <tr>
+                                <td>{item['product_name']}</td>
+                                <td>{int(item['quantity']) if item['quantity'].is_integer() else item['quantity']}</td>
+                                <td>{currency}{item['unit_price']:.2f}</td>
+                                <td>{tax_rate}%</td>
+                                <td>{currency}{item['total']:.2f}</td>
+                            </tr>
+                """
+            
+            body += f"""
+                        </tbody>
+                    </table>
+                    
+                    <div style="margin-top: 20px; text-align: right;">
+                        <p><strong>Subtotal:</strong> {currency}{self.invoice_data['subtotal']:.2f}</p>
+                        <p><strong>Tax Total:</strong> {currency}{self.invoice_data['tax_total']:.2f}</p>
+                        <p class="total"><strong>Grand Total:</strong> {currency}{self.invoice_data['grand_total']:.2f}</p>
+                    </div>
+                    
+                    <div style="margin-top: 30px;">
+                        <h3>Bank Details:</h3>
+                        <p>
+                            <strong>Bank:</strong> {self.settings.get('bank_name', 'N/A')}<br>
+                            <strong>Account Name:</strong> {self.settings.get('bank_account_name', 'N/A')}<br>
+                            <strong>Account Number:</strong> {self.settings.get('bank_account_number', 'N/A')}<br>
+                            <strong>IFSC Code:</strong> {self.settings.get('bank_ifsc', 'N/A')}<br>
+                            <strong>UPI ID:</strong> {self.settings.get('bank_upi_id', 'N/A')}
+                        </p>
+                    </div>
+                </div>
+                
+                <div class="footer">
+                    <p>{self.settings.get('invoice_terms', 'Thank you for your business!')}</p>
+                    <p><small>This is a computer generated invoice. No signature required.</small></p>
+                </div>
+            </body>
+            </html>
+            """
+            
+            success, message = email_service.send_email(self.to_email, subject, body, pdf_path)
+            
+            # Clean up temp file
+            try:
+                os.remove(pdf_path)
+            except:
+                pass
+            
+            self.finished.emit(success, message)
+            
+        except Exception as e:
+            self.finished.emit(False, str(e))
+
 
 class InvoiceViewer(QDialog):
     def __init__(self, invoice_data, auth_service, parent=None):
@@ -16,10 +162,11 @@ class InvoiceViewer(QDialog):
         self.auth_service = auth_service
         self.settings_controller = SettingsController()
         self.invoice_model = Invoice()
+        self.email_worker = None
         self.setup_ui()
         self.setWindowTitle(f"Invoice {invoice_data['invoice_number']}")
         self.setModal(True)
-        self.resize(900, 800)
+        self.resize(950, 850)
     
     def setup_ui(self):
         layout = QVBoxLayout(self)
@@ -33,6 +180,21 @@ class InvoiceViewer(QDialog):
         header_frame = QFrame()
         header_frame.setStyleSheet("background-color: #2c3e50; color: white; padding: 15px; border-radius: 5px;")
         header_layout = QVBoxLayout(header_frame)
+        
+        # Logo if exists
+        logo_data = settings.get('company_logo', '')
+        if logo_data:
+            try:
+                from PyQt5.QtGui import QPixmap
+                import base64
+                pixmap = QPixmap()
+                pixmap.loadFromData(base64.b64decode(logo_data))
+                logo_label = QLabel()
+                logo_label.setPixmap(pixmap.scaled(80, 80, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                logo_label.setAlignment(Qt.AlignCenter)
+                header_layout.addWidget(logo_label)
+            except:
+                pass
         
         business_label = QLabel(f"<h2>{business_name}</h2>")
         business_label.setAlignment(Qt.AlignCenter)
@@ -104,7 +266,9 @@ class InvoiceViewer(QDialog):
             self.table.setItem(row-1, 0, QTableWidgetItem(str(row)))
             self.table.setItem(row-1, 1, QTableWidgetItem(item['product_name']))
             self.table.setItem(row-1, 2, QTableWidgetItem(item.get('hsn_code', '')))
-            self.table.setItem(row-1, 3, QTableWidgetItem(str(int(item['quantity'])) if item['quantity'].is_integer() else str(item['quantity'])))
+            quantity = item['quantity']
+            quantity_str = str(int(quantity)) if quantity.is_integer() else f"{quantity:.2f}"
+            self.table.setItem(row-1, 3, QTableWidgetItem(quantity_str))
             self.table.setItem(row-1, 4, QTableWidgetItem(f"{currency}{item['unit_price']:.2f}"))
             
             tax_rate = item.get('cgst_rate', 0) + item.get('sgst_rate', 0) + item.get('igst_rate', 0)
@@ -178,6 +342,27 @@ class InvoiceViewer(QDialog):
         
         layout.addWidget(totals_frame)
         
+        # Bank Details Section
+        bank_name = settings.get('bank_name', '')
+        if bank_name:
+            bank_frame = QFrame()
+            bank_frame.setStyleSheet("border: 1px solid #3498db; border-radius: 5px; padding: 10px; margin-top: 10px; background-color: #e8f4fd;")
+            bank_layout = QVBoxLayout(bank_frame)
+            bank_layout.addWidget(QLabel("<b>Bank Details for Payment:</b>"))
+            
+            if settings.get('bank_name'):
+                bank_layout.addWidget(QLabel(f"Bank: {settings.get('bank_name')}"))
+            if settings.get('bank_account_name'):
+                bank_layout.addWidget(QLabel(f"Account Name: {settings.get('bank_account_name')}"))
+            if settings.get('bank_account_number'):
+                bank_layout.addWidget(QLabel(f"Account Number: {settings.get('bank_account_number')}"))
+            if settings.get('bank_ifsc'):
+                bank_layout.addWidget(QLabel(f"IFSC Code: {settings.get('bank_ifsc')}"))
+            if settings.get('bank_upi_id'):
+                bank_layout.addWidget(QLabel(f"UPI ID: {settings.get('bank_upi_id')}"))
+            
+            layout.addWidget(bank_frame)
+        
         # Notes
         if self.invoice.get('notes'):
             notes_frame = QFrame()
@@ -197,8 +382,20 @@ class InvoiceViewer(QDialog):
             terms_layout.addWidget(QLabel(terms))
             layout.addWidget(terms_frame)
         
+        # Progress Bar for email sending
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setVisible(False)
+        layout.addWidget(self.progress_bar)
+        
         # Button Layout
         button_layout = QHBoxLayout()
+        
+        # Send Email Button
+        self.email_btn = QPushButton("📧 Send Email to Customer")
+        self.email_btn.setMinimumHeight(40)
+        self.email_btn.setStyleSheet("background-color: #3498db; color: white; font-weight: bold;")
+        self.email_btn.clicked.connect(self.send_email_dialog)
+        button_layout.addWidget(self.email_btn)
         
         # PDF Export Button
         pdf_btn = QPushButton("📄 Export PDF")
@@ -212,11 +409,93 @@ class InvoiceViewer(QDialog):
         # Close Button
         close_btn = QPushButton("Close")
         close_btn.setMinimumHeight(40)
-        close_btn.setStyleSheet("background-color: #3498db; color: white; font-weight: bold;")
+        close_btn.setStyleSheet("background-color: #95a5a6; color: white; font-weight: bold;")
         close_btn.clicked.connect(self.accept)
         button_layout.addWidget(close_btn)
         
         layout.addLayout(button_layout)
+    
+    def send_email_dialog(self):
+        """Show dialog to enter customer email and send invoice"""
+        customer_email = self.invoice.get('email', '')
+        
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Send Invoice via Email")
+        dialog.setModal(True)
+        dialog.setFixedSize(450, 250)
+        
+        layout = QVBoxLayout(dialog)
+        layout.setSpacing(15)
+        layout.setContentsMargins(20, 20, 20, 20)
+        
+        layout.addWidget(QLabel("<b>Send Invoice to Customer</b>"))
+        layout.addWidget(QLabel(f"Invoice: {self.invoice['invoice_number']}"))
+        layout.addWidget(QLabel(f"Customer: {self.invoice.get('customer_name', 'N/A')}"))
+        
+        layout.addWidget(QLabel("Email Address:"))
+        email_input = QLineEdit()
+        email_input.setText(customer_email)
+        email_input.setPlaceholderText("customer@example.com")
+        layout.addWidget(email_input)
+        
+        # Status label
+        status_label = QLabel()
+        status_label.setStyleSheet("color: green;")
+        status_label.setWordWrap(True)
+        layout.addWidget(status_label)
+        
+        button_layout = QHBoxLayout()
+        send_btn = QPushButton("Send Email")
+        send_btn.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold;")
+        cancel_btn = QPushButton("Cancel")
+        
+        button_layout.addWidget(send_btn)
+        button_layout.addWidget(cancel_btn)
+        layout.addLayout(button_layout)
+        
+        def send_email():
+            email = email_input.text().strip()
+            if not email:
+                QMessageBox.warning(dialog, "Error", "Please enter an email address!")
+                return
+            
+            send_btn.setEnabled(False)
+            send_btn.setText("Sending...")
+            status_label.setText("Sending email...")
+            status_label.setStyleSheet("color: blue;")
+            
+            # Start email thread
+            settings = self.settings_controller.get_settings()
+            self.email_worker = EmailWorker(email, self.invoice, settings)
+            self.email_worker.progress.connect(lambda msg: status_label.setText(msg))
+            self.email_worker.finished.connect(lambda success, msg: self.on_email_sent(success, msg, dialog, send_btn))
+            self.email_worker.start()
+        
+        def on_email_sent(success, message, dialog, send_btn):
+            if success:
+                status_label.setText("✓ Email sent successfully!")
+                status_label.setStyleSheet("color: green; font-weight: bold;")
+                QMessageBox.information(dialog, "Success", f"Invoice sent to {email_input.text()}!")
+                dialog.accept()
+            else:
+                status_label.setText(f"✗ Failed: {message}")
+                status_label.setStyleSheet("color: red;")
+                send_btn.setEnabled(True)
+                send_btn.setText("Send Email")
+        
+        send_btn.clicked.connect(send_email)
+        cancel_btn.clicked.connect(dialog.reject)
+        
+        dialog.exec_()
+    
+    def on_email_sent(self, success, message, dialog, send_btn):
+        if success:
+            QMessageBox.information(dialog, "Success", "Invoice sent successfully!")
+            dialog.accept()
+        else:
+            QMessageBox.critical(dialog, "Error", f"Failed to send email: {message}")
+            send_btn.setEnabled(True)
+            send_btn.setText("Send Email")
     
     def update_status(self, status):
         reply = QMessageBox.question(self, "Update Status", 

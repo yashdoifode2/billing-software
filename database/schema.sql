@@ -207,3 +207,24 @@ INSERT OR IGNORE INTO permissions (name, description) VALUES
 -- Insert default admin user (password: Admin@123)
 INSERT OR IGNORE INTO users (username, password_hash, full_name, role, is_active) VALUES 
     ('admin', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5GyYQiE/fQJuy', 'Administrator', 'admin', 1);
+
+-- Add new settings for SMTP, Bank Details, and Logo
+INSERT OR IGNORE INTO settings (setting_key, setting_value, setting_type) VALUES 
+    -- Bank Details
+    ('bank_name', '', 'string'),
+    ('bank_account_name', '', 'string'),
+    ('bank_account_number', '', 'string'),
+    ('bank_ifsc', '', 'string'),
+    ('bank_branch', '', 'string'),
+    ('bank_upi_id', '', 'string'),
+    
+    -- SMTP Settings
+    ('smtp_host', 'smtp.gmail.com', 'string'),
+    ('smtp_port', '587', 'integer'),
+    ('smtp_user', '', 'string'),
+    ('smtp_password', '', 'string'),
+    ('smtp_from_email', '', 'string'),
+    ('smtp_use_tls', '1', 'boolean'),
+    
+    -- Logo
+    ('company_logo', '', 'blob');
